@@ -388,12 +388,10 @@ begin
       LocalConnection: TFDConnection;
       LocalQuery: TFDQuery;
       Status: string;
-      ItemIndex: Integer;
     begin
       LocalConnection := TFDConnection.Create(nil);
       LocalQuery := TFDQuery.Create(nil);
       try
-        // Устанавливаем начальный статус "Подключение"
         TThread.Synchronize(nil,
           procedure
           begin
@@ -411,22 +409,36 @@ begin
           LocalQuery.SQL.Text := SynEdit1.Lines.Text;
           LocalQuery.Open;
 
-          // Копируем данные в главном потоке
           TThread.Synchronize(nil,
             procedure
             var
-              MainThreadQuery: TFDQuery;
+              ClientDataSet: TClientDataSet;
+              DataSetProvider: TDataSetProvider;
             begin
-              MainThreadQuery := TFDQuery.Create(nil);
+              ClientDataSet := TClientDataSet.Create(nil);
+              DataSetProvider := TDataSetProvider.Create(nil);
               try
-                MainThreadQuery.Connection := LocalConnection;
-                MainThreadQuery.SQL.Text := LocalQuery.SQL.Text;
-                MainThreadQuery.Open;
-                ShowMessage(MainThreadQuery.FieldByName('DOCUMENTID').AsString);
+                DataSetProvider.DataSet := LocalQuery;
+                ClientDataSet.AppendData(DataSetProvider.Data, True);
+                DataSource1.DataSet := ClientDataSet;
 
-                // Присваиваем DataSource1 новый набор данных
-                DataSource1.DataSet := MainThreadQuery;
+                DBGrid1.DataSource := DataSource1;
 
+                // Принудительное обновление DBGrid
+                DBGrid1.Refresh;
+
+                // Проверка данных
+                if not ClientDataSet.IsEmpty then
+                begin
+                  ShowMessage('Количество записей: ' + IntToStr(ClientDataSet.RecordCount));
+                end
+                else
+                begin
+                  ShowMessage('ClientDataSet пуст');
+                end;
+
+                // Обновление формы
+                Form5.Refresh;
               except
                 on E: Exception do
                   ShowMessage('Ошибка при копировании данных: ' + E.Message);
@@ -441,7 +453,6 @@ begin
           end;
         end;
 
-        // Обновляем статус в ListView
         TThread.Synchronize(nil,
           procedure
           begin
