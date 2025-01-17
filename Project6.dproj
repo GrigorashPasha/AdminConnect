@@ -123,9 +123,8 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="C:\Users\Admin\Documents\Embarcadero\Studio\Projects\Unit5.pas">
+        <DCCReference Include="Unit5.pas">
             <Form>Form5</Form>
-            <FormType>dfm</FormType>
         </DCCReference>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>

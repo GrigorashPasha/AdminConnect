@@ -1,0 +1,449 @@
+unit Unit5;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.ExtCtrls, Vcl.ComCtrls,
+  Vcl.StdCtrls, Vcl.DBCtrls, SynEditHighlighter, SynHighlighterSQL, SynEdit,
+  SynDBEdit, Data.DB, Vcl.Grids, Vcl.DBGrids, FireDAC.Stan.Intf,
+  FireDAC.Stan.Option, FireDAC.Stan.Error, FireDAC.UI.Intf, FireDAC.Phys.Intf,
+  FireDAC.Stan.Def, FireDAC.Stan.Pool, FireDAC.Stan.Async, FireDAC.Phys,
+  FireDAC.VCLUI.Wait, FireDAC.Comp.Client, System.JSON, System.IOUtils,
+  FireDAC.Phys.FB, FireDAC.Phys.FBDef, Vcl.CheckLst, Vcl.Buttons,
+  FireDAC.Stan.Param, FireDAC.DatS, FireDAC.DApt.Intf, FireDAC.DApt,
+  FireDAC.Comp.DataSet, Datasnap.Provider, Datasnap.DBClient,
+  SynHighlighterProgress, System.Threading, System.Generics.Collections;
+
+type
+  TForm5 = class(TForm)
+    Panel1: TPanel;
+    SynEdit1: TSynEdit;
+    SynSQLSyn1: TSynSQLSyn;
+    PageControl1: TPageControl;
+    TabSheet1: TTabSheet;
+    TabSheet2: TTabSheet;
+    Panel2: TPanel;
+    PageControl2: TPageControl;
+    TabSheet3: TTabSheet;
+    TabSheet4: TTabSheet;
+    DBGrid1: TDBGrid;
+    FDConnection1: TFDConnection;
+    ListView1: TListView;
+    Panel3: TPanel;
+    BitBtn1: TBitBtn;
+    CheckBox1: TCheckBox;
+    FDQuery1: TFDQuery;
+    DataSource1: TDataSource;
+    ComboBox1: TComboBox;
+    CheckListBox1: TCheckListBox;
+    TabSheet5: TTabSheet;
+    ListView2: TListView;
+    procedure LoadDatabaseInfo;
+    procedure FormCreate(Sender: TObject);
+    procedure ComboBox1Change(Sender: TObject);
+    procedure CheckBox1Click(Sender: TObject);
+    procedure BitBtn1Click(Sender: TObject);
+    procedure SaveQueryHistory(const HistoryList: TStringList);
+    procedure LoadQueryHistory(ListView: TListView);
+    procedure ListView2SelectItem(Sender: TObject; Item: TListItem;
+      Selected: Boolean);
+    //function FindListViewItem(const Database: string): TListItem;
+    procedure ProcessDatabase(const Database: string);
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+  end;
+
+var
+  Form5: TForm5;
+
+implementation
+
+{$R *.dfm}
+
+procedure TForm5.BitBtn1Click(Sender: TObject);
+var
+  JSONValue: TJSONValue;
+  JSONObject, Group: TJSONObject;
+  CurrentPair, Pair: TJSONPair;
+  i: Integer;
+  SelectedDatabase: TStringList;
+  Database: String;
+  Tasks: array of ITask;
+begin
+  SelectedDatabase := TStringList.Create;
+  try
+    JSONValue := TJSONObject.ParseJSONValue(
+      TEncoding.UTF8.GetString(TFile.ReadAllBytes('C:\Users\Admin\Desktop\databases.json')));
+
+    if not (JSONValue is TJSONObject) then
+      raise Exception.Create('JSON value is not an object');
+
+    JSONObject := JSONValue as TJSONObject;
+
+    // Находим по ключу путь к баз данных
+    for i := 0 to CheckListBox1.Count - 1 do
+      if CheckListBox1.Checked[i] then
+      begin
+        if JSONObject.TryGetValue<TJSONObject>(ComboBox1.Items[ComboBox1.ItemIndex], Group) then
+        begin
+          for CurrentPair in Group do
+            if CurrentPair.JsonString.Value = CheckListBox1.Items[i] then
+            begin
+              SelectedDatabase.Add(CurrentPair.JsonValue.Value);
+              Break;
+            end;
+        end
+        else if ComboBox1.Items[ComboBox1.ItemIndex] = 'Все базы' then
+        begin
+          for Pair in JSONObject do
+          begin
+            Group := Pair.JsonValue as TJSONObject;
+            for CurrentPair in Group do
+              if CurrentPair.JsonString.Value = CheckListBox1.Items[i] then
+              begin
+                SelectedDatabase.Add(CurrentPair.JsonValue.Value);
+                Break;
+              end;
+          end;
+        end;
+      end;
+
+    if SelectedDatabase.Count = 0 then
+    begin
+      ShowMessage('Пожалуйста, выберите хотя бы одну базу данных.');
+      Exit;
+    end;
+
+    // Инициализируем задачи (паралленьное выполнение)
+    SetLength(Tasks, SelectedDatabase.Count);
+    for i := 0 to SelectedDatabase.Count - 1 do
+    begin
+      ProcessDatabase(SelectedDatabase[i]);
+    end;
+
+    PageControl1.ActivePage := TabSheet1;
+
+  finally
+    SelectedDatabase.Free;
+    JSONValue.Free;
+  end;
+end;
+
+
+
+procedure TForm5.CheckBox1Click(Sender: TObject);
+var
+  i: Integer;
+begin
+  for i := 0 to CheckListBox1.Count - 1 do
+  begin
+    if CheckBox1.Checked then
+      CheckListBox1.Checked[i] := True
+    else
+      CheckListBox1.Checked[i] := False;
+  end;
+end;
+
+procedure TForm5.ComboBox1Change(Sender: TObject);
+var
+  JSONObject, Group: TJSONObject;
+  JSONValue, Database: TJSONValue;
+  JSONPair: TJSONPair;
+  i: Integer;
+begin
+  CheckListBox1.Clear;
+
+  // Загрузить JSON файл
+  JSONValue := TJSONObject.ParseJSONValue(TEncoding.UTF8.GetString(TFile.ReadAllBytes('C:\Users\Admin\Desktop\databases.json')));
+
+  // Проверить тип загруженного JSON значения
+  if JSONValue is TJSONObject then
+    JSONObject := JSONValue as TJSONObject
+  else
+    raise Exception.Create('JSON value is not an object');
+
+  // Найти выбранную группу
+  if JSONObject.TryGetValue<TJSONObject>(ComboBox1.Items[ComboBox1.ItemIndex], Group) then
+  begin
+    // Если Group - это объект, перебираем его
+    for i := 0 to Group.Count - 1 do
+    begin
+      CheckListBox1.Items.Add(Group.Pairs[i].JsonString.Value);
+    end;
+  end
+  else if ComboBox1.Items[ComboBox1.ItemIndex] = 'Все базы' then
+  begin
+    // Если выбрана опция "Все базы", перебираем все группы
+    for JSONPair in JSONObject do
+    begin
+      Group := JSONPair.JsonValue as TJSONObject;
+      for i := 0 to Group.Count - 1 do
+      begin
+        CheckListBox1.Items.Add(Group.Pairs[i].JsonString.Value);
+      end;
+    end;
+  end;
+
+  JSONValue.Free;
+end;
+
+procedure TForm5.FormCreate(Sender: TObject);
+begin
+  LoadDatabaseInfo;
+end;
+
+procedure TForm5.ListView2SelectItem(Sender: TObject; Item: TListItem;
+  Selected: Boolean);
+begin
+  // Проверяем, был ли выбран элемент
+  if Selected then
+  begin
+    // Копируем текст из колонки "Запрос" в SynEdit1
+    SynEdit1.Lines.Text := Item.Caption;
+    PageControl2.ActivePage := TabSheet3;
+  end;
+end;
+
+procedure TForm5.LoadDatabaseInfo;
+var
+  JSONData: TJSONObject;
+  JsonPair: TJSONPair;
+  Databases: TJSONObject;
+  Key: string;
+  ListItem: TListItem;
+  DatabaseFile, DatabasePath, ConnectionStatus: string;
+  i: Integer;
+begin
+  DatabaseFile := 'C:\Users\Admin\Desktop\databases.json'; // Укажите путь к JSON файлу, где указаны подключения
+
+  // Читаем и парсим JSON
+  JSONData := TJSONObject.ParseJSONValue(TFile.ReadAllText(DatabaseFile)) as TJSONObject;
+
+   // Заполнить ComboBox группами
+  for JSONPair in JSONData do
+  begin
+    ComboBox1.Items.Add(JSONPair.JsonString.Value);
+  end;
+
+  // Добавить пункт "Все базы"
+  ComboBox1.Items.Add('Все базы');
+
+  // Установить индекс выбора
+  ComboBox1.ItemIndex := 0;
+
+  // Заполнить CheckListBox базами для выбранной группы
+  ComboBox1Change(nil);
+
+  // Заполняем историю запросов
+  LoadQueryHistory(ListView2);
+
+
+  try
+    // Перебераем свойства сетей
+    for i := 0 to JSONData.Count -1 do
+    begin
+      Key := JSONData.Pairs[i].JsonString.Value; // Получаем ключ
+      Databases := JSONData.Pairs[i].JsonValue as TJSONObject; // Получаем значение как объект
+
+      //ComboBoxGroup.Items.Add(Key); // Добавляем группу в ComboBox
+
+      // Перебираем базы данных
+      for JsonPair in Databases do
+      begin
+        // Создаем элемент списка
+        ListItem := ListView1.Items.Add;
+        ListItem.Caption := JsonPair.JsonString.Value;
+        ListItem.SubItems.Add(JsonPair.JsonValue.Value);
+
+        {*DatabasePath := JsonPair.JsonValue.Value;
+
+        // Проверка подключения к БД
+        try
+          FDConnection1.Params.Database := DatabasePath;
+          FDConnection1.Params.UserName := 'MIFUSER';
+          FDConnection1.Params.Password := 'MIFROOT';
+          FDConnection1.Connected := True;
+
+          ConnectionStatus := 'Соединение установлено успешно';
+        except
+          on E: Exception do
+            ConnectionStatus := 'Ошибка ' + E.Message;
+        end;*}
+
+        // Добавляем состояние в ListView
+        ListItem.SubItems.Add(ConnectionStatus);
+      end;
+    end;
+  finally
+    JSONData.Free;
+  end;
+end;
+
+procedure TForm5.SaveQueryHistory(const HistoryList: TStringList);
+var
+  JSONArray: TJSONArray;
+  JSONValue: TJSONObject;
+  ExistingJSONArray: TJSONArray;
+  i: Integer;
+  JSONFile: TStringStream;
+  JSONStr: string;
+begin
+  JSONArray := TJSONArray.Create; // создаем новый массив
+  try
+    // Проверяем, существует ли файл и загружаем существующую историю
+    if FileExists('C:\Users\Admin\Desktop\query_history.json') then
+    begin
+      JSONStr := TFile.ReadAllText('C:\Users\Admin\Desktop\query_history.json');
+      ExistingJSONArray := TJSONArray(TJSONObject.ParseJSONValue(JSONStr));
+
+      if Assigned(ExistingJSONArray) then
+      begin
+        // Добавляем старые запросы в новый массив
+        for i := 0 to ExistingJSONArray.Count - 1 do
+        begin
+          JSONArray.AddElement(ExistingJSONArray.Items[i] as TJSONObject);
+        end;
+      end
+      else
+      begin
+        // Если парсинг не удался, очистим строку и продолжим
+        JSONStr := '';
+      end;
+    end;
+
+    // Добавляем новые запросы
+    for i := 0 to HistoryList.Count - 1 do
+    begin
+      JSONValue := TJSONObject.Create;
+
+      JSONValue.AddPair('query', HistoryList[i]);
+      JSONValue.AddPair('timestamp', DateTimeToStr(Now));
+      JSONArray.AddElement(JSONValue);
+    end;
+
+    // Сохраняем обновленный массив в файл
+    JSONFile := TStringStream.Create(JSONArray.ToJSON);
+    JSONFile.SaveToFile('C:\Users\Admin\Desktop\query_history.json');
+
+
+  finally
+    JSONArray.Free; // освобождаем массив
+  end;
+end;
+
+
+procedure TFOrm5.LoadQueryHistory(ListView: TListView);
+var
+  JSONValue: TJSONValue;
+  JSONArray: TJSONArray;
+  JSONObject: TJSONObject;
+  i: Integer;
+  JSONString: string;
+begin
+  ListView.Items.Clear; // Очистить перед загрузкой
+
+  if FileExists('C:\Users\Admin\Desktop\query_history.json') then
+  begin
+    // Читаем содержимое файла в строку
+    JSONString := TFile.ReadAllText('C:\Users\Admin\Desktop\query_history.json');
+
+    JSONValue := TJSONObject.ParseJSONValue(JSONString);
+    if JSONValue is TJSONArray then
+    begin
+      JSONArray := JSONValue as TJSONArray;
+
+      for i := 0 to JSONArray.Count - 1 do
+      begin
+        JSONObject := JSONArray[i] as TJSONObject;
+
+        // Добавляем элемент в ListView
+        with ListView.Items.Add do
+        begin
+           Caption := JSONObject.GetValue<string>('query'); // Запрос
+           SubItems.Add(JSONObject.GetValue<string>('timestamp')); // Время
+        end;
+      end;
+    end;
+    JSONValue.Free;
+  end;
+end;
+
+procedure TForm5.ProcessDatabase(const Database: string);
+var
+  Task: ITask;
+begin
+  // Создаем новую задачу для обработки базы данных
+  Task := TTask.Run(
+    procedure
+    var
+      LocalConnection: TFDConnection;
+      LocalQuery: TFDQuery;
+      Status: string;
+      ItemIndex: Integer;
+    begin
+      // Создаем локальные объекты для подключения и запроса
+      LocalConnection := TFDConnection.Create(nil);
+      LocalQuery := TFDQuery.Create(nil);
+      try
+        // Настраиваем параметры подключения
+        LocalConnection.DriverName := 'FB';
+        LocalConnection.Params.Database := Database;
+        LocalConnection.Params.UserName := 'MIFUSER';
+        LocalConnection.Params.Password := 'MIFROOT';
+        LocalQuery.Connection := LocalConnection;
+
+        try
+          // Пытаемся подключиться и выполнить запрос
+          LocalConnection.Connected := True;
+          LocalQuery.SQL.Text := SynEdit1.Lines.Text;
+          LocalQuery.Open;
+
+          // Синхронизируем с главным потоком для обновления DataSource
+          TThread.Synchronize(nil,
+            procedure
+            begin
+              DataSource1.DataSet := LocalQuery;
+              ShowMessage(DataSource1.DataSet.FieldByName('ID').AsString + ' * **  ');
+            end);
+
+          Status := 'Выполнено успешно';
+        except
+          on E: EFDDBEngineException do
+          begin
+            Status := 'Ошибка выполнения: ' + E.Message;
+          end;
+        end;
+
+        // Синхронизируем с главным потоком для обновления ListView
+        TThread.Synchronize(nil,
+          procedure
+          var
+            i: Integer;
+          begin
+            ItemIndex := -1;
+            for i := 0 to ListView1.Items.Count - 1 do
+              if ListView1.Items[i].SubItems[0] = Database then
+              begin
+                ItemIndex := i;
+                Break;
+              end;
+
+            if ItemIndex <> -1 then
+            begin
+              if ListView1.Items[ItemIndex].SubItems.Count > 1 then
+                ListView1.Items[ItemIndex].SubItems[1] := Status
+              else
+                ShowMessage('Недостаточно колонок для обновления статуса.');
+            end;
+          end);
+      finally
+        LocalQuery.Free;
+        LocalConnection.Free;
+      end;
+    end);
+end;
+
+end.
