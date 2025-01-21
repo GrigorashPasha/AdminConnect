@@ -1,0 +1,4 @@
+21.01.2025 13:17:32 - База: 10.0.1.3:O8, Ошибка: [FireDAC][Phys][FB]Dynamic SQL Error
+SQL error code = -104
+Token unknown - line 5, column 5
+TERM

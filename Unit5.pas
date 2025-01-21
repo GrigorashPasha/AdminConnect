@@ -13,7 +13,8 @@ uses
   FireDAC.Phys.FB, FireDAC.Phys.FBDef, Vcl.CheckLst, Vcl.Buttons,
   FireDAC.Stan.Param, FireDAC.DatS, FireDAC.DApt.Intf, FireDAC.DApt,
   FireDAC.Comp.DataSet, Datasnap.Provider, Datasnap.DBClient,
-  SynHighlighterProgress, System.Threading, System.Generics.Collections;
+  SynHighlighterProgress, System.Threading, System.Generics.Collections,
+  FireDAC.Comp.ScriptCommands, FireDAC.Stan.Util, FireDAC.Comp.Script;
 
 type
   TForm5 = class(TForm)
@@ -39,6 +40,7 @@ type
     CheckListBox1: TCheckListBox;
     TabSheet5: TTabSheet;
     ListView2: TListView;
+    RadioGroup1: TRadioGroup;
     procedure LoadDatabaseInfo;
     procedure FormCreate(Sender: TObject);
     procedure ComboBox1Change(Sender: TObject);
@@ -53,6 +55,7 @@ type
     { Private declarations }
     procedure UpdateListViewStatus(const Database, Status: String);
     procedure ProcessDatabase(const Database: string);
+    procedure LogError(const Database: string; const ErrorMessage: string; const ExecutionTime: TDateTime);
   public
     { Public declarations }
   end;
@@ -127,7 +130,9 @@ begin
       ProcessDatabase(SelectedDatabase[i]);
     end;
 
+
     PageControl1.ActivePage := TabSheet1;
+
 
     // Сохраняем выполенный запрос
     QueryHistory.Add(SynEdit1.Lines.Text);
@@ -387,10 +392,12 @@ begin
     var
       LocalConnection: TFDConnection;
       LocalQuery: TFDQuery;
+      LocalScript: TFDScript;
       Status: string;
     begin
       LocalConnection := TFDConnection.Create(nil);
       LocalQuery := TFDQuery.Create(nil);
+      LocalScript := TFDScript.Create(nil);
       try
         TThread.Synchronize(nil,
           procedure
@@ -402,53 +409,67 @@ begin
         LocalConnection.Params.Database := Database;
         LocalConnection.Params.UserName := 'MIFUSER';
         LocalConnection.Params.Password := 'MIFROOT';
+        LocalConnection.Params.Values['CharacterSet'] := 'WIN1251';
         LocalQuery.Connection := LocalConnection;
-
+        LocalScript.Connection := LocalConnection;
         try
           LocalConnection.Connected := True;
-          LocalQuery.SQL.Text := SynEdit1.Lines.Text;
-          LocalQuery.Open;
 
-          TThread.Synchronize(nil,
-            procedure
-            var
-              ClientDataSet: TClientDataSet;
-              DataSetProvider: TDataSetProvider;
-            begin
-              ClientDataSet := TClientDataSet.Create(nil);
-              DataSetProvider := TDataSetProvider.Create(nil);
-              try
-                DataSetProvider.DataSet := LocalQuery;
-                ClientDataSet.AppendData(DataSetProvider.Data, True);
-                DataSource1.DataSet := ClientDataSet;
+          if RadioGroup1.ItemIndex = 0 then // Проверяем выбранный элемент "Запрос"
+          begin
+            LocalQuery.SQL.Text := SynEdit1.Lines.Text;
+            LocalQuery.Open;
 
-                DBGrid1.DataSource := DataSource1;
+            TThread.Synchronize(nil,
+              procedure
+              var
+                ClientDataSet: TClientDataSet;
+                DataSetProvider: TDataSetProvider;
+              begin
+                ClientDataSet := TClientDataSet.Create(nil);
+                DataSetProvider := TDataSetProvider.Create(nil);
+                try
+                  DataSetProvider.DataSet := LocalQuery;
+                  ClientDataSet.AppendData(DataSetProvider.Data, True);
+                  DataSource1.DataSet := ClientDataSet;
+                  DBGrid1.DataSource := DataSource1;
 
-                // Принудительное обновление DBGrid
-                DBGrid1.Refresh;
+                  // Обновление DBGrid
+                  DBGrid1.Refresh;
 
-                // Проверка данных
-                if not ClientDataSet.IsEmpty then
-                begin
-                  ShowMessage('Количество записей: ' + IntToStr(ClientDataSet.RecordCount));
-                end
-                else
-                begin
-                  ShowMessage('ClientDataSet пуст');
+                  // Проверка данных
+                  if ClientDataSet.IsEmpty then
+                  begin
+                      ShowMessage('ClientDataSet пуст');
+                  end;
+
+                  // Обновление формы
+                  Form5.Refresh;
+                except
+                  on E: Exception do
+                  begin
+                    LogError(Database, E.Message, Now); // Записываем сообщение об ошибке с текущим временем
+                    ShowMessage('Ошибка при копировании данных: ' + E.Message);
+                  end;
                 end;
+              end);
 
-                // Обновление формы
-                Form5.Refresh;
-              except
-                on E: Exception do
-                  ShowMessage('Ошибка при копировании данных: ' + E.Message);
-              end;
-            end);
+            Status := 'Запрос выполнен успешно';
+          end
+          else if RadioGroup1.ItemIndex = 1 then // Проверяем выбранный элемент "Скрипт"
+          begin
+            LocalScript.SQLScripts.Add;
+            LocalScript.SQLScripts[0].SQL := SynEdit1.Lines;
+            LocalScript.ValidateAll;
+            LocalScript.ExecuteAll;
 
-          Status := 'Выполнено успешно';
+            Status := 'Скрипт выполнен успешно';
+          end;
+
         except
           on E: EFDDBEngineException do
           begin
+            LogError(Database, E.Message, Now); // Записываем сообщение об ошибке с текущим временем
             Status := 'Ошибка выполнения: ' + E.Message;
           end;
         end;
@@ -460,10 +481,12 @@ begin
           end);
       finally
         LocalQuery.Free;
+        LocalScript.Free;
         LocalConnection.Free;
       end;
     end);
 end;
+
 
 // Вспомогательная процедура для обновления статуса в ListView
 procedure TForm5.UpdateListViewStatus(const Database, Status: String);
@@ -482,6 +505,27 @@ begin
         ShowMessage('Недостаточно колонок для обновления статуса.');
       end;
     end;
+end;
+
+// Процедура записи лога о не корректно выполненных запросов и скриптов
+procedure TForm5.LogError(const Database: string; const ErrorMessage: string; const ExecutionTime: TDateTime);
+var
+  LogFile: TextFile;
+  LogMessage: String;
+begin
+  AssignFile(LogFile, 'error_log.txt');
+  if FileExists('error_log.txt') then
+    Append(LogFile) // Если файл существует, открываем его для добавления
+  else
+    Rewrite(LogFile); // Если файла нет, создаем новый
+
+  try
+    LogMessage := Format('%s - База: %s, Ошибка: %s',
+                 [DateTimeToStr(ExecutionTime), Database, ErrorMessage]);
+    Writeln(LogFile, LogMessage); // Записываем данные в файл
+  finally
+    CloseFile(LogFile); // Закрываем файл
+  end;
 end;
 
 end.

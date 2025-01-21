@@ -24,7 +24,7 @@ object Form5: TForm5
       Top = 1
       Width = 1184
       Height = 780
-      ActivePage = TabSheet2
+      ActivePage = TabSheet1
       Align = alClient
       TabOrder = 0
       object TabSheet1: TTabSheet
@@ -163,6 +163,19 @@ object Form5: TForm5
                 ItemHeight = 15
                 TabOrder = 2
               end
+              object RadioGroup1: TRadioGroup
+                Left = 1
+                Top = 571
+                Width = 175
+                Height = 105
+                Align = alBottom
+                Caption = #1042#1099#1087#1086#1083#1085#1077#1085#1080#1077
+                ItemIndex = 0
+                Items.Strings = (
+                  #1047#1072#1087#1088#1086#1089
+                  #1057#1082#1088#1080#1087#1090)
+                TabOrder = 3
+              end
             end
           end
           object TabSheet4: TTabSheet
@@ -213,20 +226,20 @@ object Form5: TForm5
   object SynSQLSyn1: TSynSQLSyn
     KeyAttri.Foreground = clHotLight
     SQLDialect = sqlInterbase6
-    Left = 1072
-    Top = 696
+    Left = 784
+    Top = 712
   end
   object FDConnection1: TFDConnection
     Params.Strings = (
       'DriverID=FB'
       'User_Name=sysdba'
       'Password=masterkey')
-    Left = 945
+    Left = 897
     Top = 718
   end
   object FDQuery1: TFDQuery
     Connection = FDConnection1
-    Left = 913
+    Left = 841
     Top = 714
   end
   object DataSource1: TDataSource
