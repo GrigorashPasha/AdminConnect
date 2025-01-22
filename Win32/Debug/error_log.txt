@@ -2,3 +2,7 @@
 SQL error code = -104
 Token unknown - line 5, column 5
 TERM
+22.01.2025 10:21:31 - База: 10.0.24.1/3050:D:MIF\DB\OFF11DB.FDB, Ошибка: Access violation at address 00EE6384 in module 'Project6.exe' (offset 286384). Read of address 000000A9
+22.01.2025 10:21:32 - База: 10.0.23.1/3050:D:MIF\DB\OFF10DB.FDB, Ошибка: Access violation at address 00EE6384 in module 'Project6.exe' (offset 286384). Read of address 000000A9
+22.01.2025 10:27:26 - База: 10.0.24.1/3050:D:MIF\DB\OFF11DB.FDB, Ошибка: Access violation at address 006FBBC6 in module 'Project6.exe' (offset 52BBC6). Read of address 00000375
+22.01.2025 10:27:26 - База: 10.0.23.1/3050:D:MIF\DB\OFF10DB.FDB, Ошибка: Access violation at address 006FBBC6 in module 'Project6.exe' (offset 52BBC6). Read of address 00000375

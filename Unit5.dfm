@@ -24,7 +24,7 @@ object Form5: TForm5
       Top = 1
       Width = 1184
       Height = 780
-      ActivePage = TabSheet1
+      ActivePage = TabSheet2
       Align = alClient
       TabOrder = 0
       object TabSheet1: TTabSheet
@@ -125,9 +125,33 @@ object Form5: TForm5
                 Top = 8
                 Width = 65
                 Height = 27
+                Hint = #1042#1099#1087#1086#1083#1085#1080#1090#1100
                 Caption = 'BitBtn1'
+                ParentShowHint = False
+                ShowHint = True
                 TabOrder = 0
                 OnClick = BitBtn1Click
+              end
+              object BitBtn2: TBitBtn
+                Left = 71
+                Top = 8
+                Width = 66
+                Height = 29
+                Hint = #1047#1072#1075#1088#1091#1079#1080#1090#1100' '#1080#1079
+                Caption = 'BitBtn2'
+                ParentShowHint = False
+                ShowHint = True
+                TabOrder = 1
+                OnClick = BitBtn2Click
+              end
+              object BitBtn3: TBitBtn
+                Left = 143
+                Top = 12
+                Width = 75
+                Height = 25
+                Caption = 'BitBtn3'
+                TabOrder = 2
+                OnClick = BitBtn3Click
               end
             end
             object Panel2: TPanel
@@ -245,5 +269,17 @@ object Form5: TForm5
   object DataSource1: TDataSource
     Left = 689
     Top = 722
+  end
+  object OpenDialog1: TOpenDialog
+    Left = 553
+    Top = 717
+  end
+  object SaveDialog1: TSaveDialog
+    Left = 585
+    Top = 717
+  end
+  object FDFBOnlineValidate1: TFDFBOnlineValidate
+    Left = 685
+    Top = 643
   end
 end
