@@ -14,7 +14,8 @@ uses
   FireDAC.Stan.Param, FireDAC.DatS, FireDAC.DApt.Intf, FireDAC.DApt,
   FireDAC.Comp.DataSet, Datasnap.Provider, Datasnap.DBClient,
   SynHighlighterProgress, System.Threading, System.Generics.Collections,
-  FireDAC.Comp.ScriptCommands, FireDAC.Stan.Util, FireDAC.Comp.Script;
+  FireDAC.Comp.ScriptCommands, FireDAC.Stan.Util, FireDAC.Comp.Script,
+  FireDAC.Phys.IBWrapper, FireDAC.Phys.IBBase, ComObj;
 
 type
   TForm5 = class(TForm)
@@ -41,6 +42,11 @@ type
     TabSheet5: TTabSheet;
     ListView2: TListView;
     RadioGroup1: TRadioGroup;
+    OpenDialog1: TOpenDialog;
+    SaveDialog1: TSaveDialog;
+    BitBtn2: TBitBtn;
+    FDFBOnlineValidate1: TFDFBOnlineValidate;
+    BitBtn3: TBitBtn;
     procedure LoadDatabaseInfo;
     procedure FormCreate(Sender: TObject);
     procedure ComboBox1Change(Sender: TObject);
@@ -50,14 +56,17 @@ type
     procedure LoadQueryHistory(ListView: TListView);
     procedure ListView2SelectItem(Sender: TObject; Item: TListItem;
       Selected: Boolean);
+    procedure BitBtn2Click(Sender: TObject);
+    procedure BitBtn3Click(Sender: TObject);
 
   private
     { Private declarations }
     procedure UpdateListViewStatus(const Database, Status: String);
-    procedure ProcessDatabase(const Database: string);
+    procedure ProcessDatabase(const Database: string; ClientDataSet: TClientDataSet);
     procedure LogError(const Database: string; const ErrorMessage: string; const ExecutionTime: TDateTime);
   public
     { Public declarations }
+    ClientDataSet: TClientDataSet;
   end;
 
 var
@@ -76,6 +85,7 @@ var
   SelectedDatabase, QueryHistory: TStringList;
   Database: String;
   Tasks: array of ITask;
+
 begin
   SelectedDatabase := TStringList.Create;
   QueryHistory := TStringList.Create;
@@ -127,16 +137,21 @@ begin
     SetLength(Tasks, SelectedDatabase.Count);
     for i := 0 to SelectedDatabase.Count - 1 do
     begin
-      ProcessDatabase(SelectedDatabase[i]);
+      ProcessDatabase(SelectedDatabase[i], ClientDataSet);
     end;
 
-
-    PageControl1.ActivePage := TabSheet1;
-
+    // Переход по форме в зависимости от выполненной операции
+    if RadioGroup1.ItemIndex = 1 then
+      PageControl1.ActivePage := TabSheet1
+    else
+      PageControl2.ActivePage := TabSheet4;
 
     // Сохраняем выполенный запрос
     QueryHistory.Add(SynEdit1.Lines.Text);
     SaveQueryHistory(QueryHistory);
+
+    // Устанавливаем DataSource1 в общий ClientDataSet
+    DataSource1.DataSet := ClientDataSet;
 
   finally
     SelectedDatabase.Free;
@@ -145,6 +160,103 @@ begin
 end;
 
 
+// Процедура загрузки запроса из файла
+procedure TForm5.BitBtn2Click(Sender: TObject);
+begin
+  if OpenDialog1.Execute then
+  begin
+    // Открываем выбранный файл и читаем его содержимое
+    SynEdit1.Lines.LoadFromFile(OpenDialog1.FileName);
+  end;
+end;
+
+procedure TForm5.BitBtn3Click(Sender: TObject);
+var
+  Excel: Variant;
+  Workbook: Variant;
+  Worksheet: Variant;
+  i, j: Integer;
+begin
+  // Открываем диалог сохранения файла
+  if SaveDialog1.Execute then
+  begin
+    try
+      // Создаем OLE объект для Excel
+      Excel := CreateOleObject('Excel.Application');
+      Excel.Visible := True; // Показываем Excel (не обязательно)
+
+      // Добавляем новую книгу
+      Workbook := Excel.Workbooks.Add;
+      Worksheet := Workbook.Worksheets[1];
+
+      // Заполняем ячейки данными из dataset
+      with DataSource1.DataSet do
+      begin
+        for i := 0 to FieldCount - 1 do
+        begin
+          // Проверяем, чтобы поле не было пустым
+          if Fields[i].DisplayName <> '' then
+            Worksheet.Cells[1, i + 1] := Fields[i].DisplayName;
+        end;
+
+        // Переходим к первой записи
+        First;
+
+        // Заполняем данные
+        i := 2; // Начинаем с второй строки, поскольку первая строка уже заполнена заголовками
+        while not Eof do
+        begin
+          for j := 0 to FieldCount - 1 do
+          begin
+            // Обрабатываем разные типы данных
+            case Fields[j].DataType of
+              TFieldType.ftString:
+                if Fields[j].AsString <> '' then
+                  Worksheet.Cells[i, j + 1] := Fields[j].AsString;
+              TFieldType.ftInteger:
+                if Fields[j].AsInteger <> 0 then
+                  Worksheet.Cells[i, j + 1] := Fields[j].AsInteger;
+              TFieldType.ftSmallint:
+                if Fields[j].AsInteger <> 0 then
+                  Worksheet.Cells[i, j + 1] := Fields[j].AsInteger;
+              TFieldType.ftFloat:
+                if Fields[j].AsFloat <> 0 then
+                  Worksheet.Cells[i, j + 1] := Fields[j].AsFloat;
+              TFieldType.ftDate:
+                if not Fields[j].IsNull then
+                  Worksheet.Cells[i, j + 1] := FormatDateTime('yyyy-mm-dd', Fields[j].AsDateTime);
+              TFieldType.ftTime:
+                if not Fields[j].IsNull then
+                  Worksheet.Cells[i, j + 1] := FormatDateTime('hh:nn:ss', Fields[j].AsDateTime);
+              TFieldType.ftTimeStamp:
+                if not Fields[j].IsNull then
+                  Worksheet.Cells[i, j + 1] := FormatDateTime('yyyy-mm-dd hh:nn:ss', Fields[j].AsDateTime);
+              // Добавьте обработку для других типов данных
+            else
+              // Если тип данных не поддерживается, можно вывести сообщение или пропустить эту ячейку
+              ShowMessage('Не поддерживаемый тип данных для поля ' + Fields[j].FieldName);
+            end;
+          end;
+          Inc(i);
+          Next;
+        end;
+      end;
+
+      // Сохраняем файл, убедившись в корректности пути
+      if SaveDialog1.FileName <> '' then
+        Workbook.SaveAs(SaveDialog1.FileName)
+      else
+        ShowMessage('Путь к файлу не указан');
+
+    finally
+      // Освобождаем ресурсы
+      Workbook := Unassigned;
+      Worksheet := Unassigned;
+      Excel.Quit;
+      Excel := Unassigned;
+    end;
+  end;
+end;
 
 procedure TForm5.CheckBox1Click(Sender: TObject);
 var
@@ -252,6 +364,8 @@ begin
   // Заполняем историю запросов
   LoadQueryHistory(ListView2);
 
+  // Инициализируем ClientDataSet
+  ClientDataSet := TClientDataSet.Create(nil);
 
   try
     // Перебераем свойства сетей
@@ -269,21 +383,6 @@ begin
         ListItem := ListView1.Items.Add;
         ListItem.Caption := JsonPair.JsonString.Value;
         ListItem.SubItems.Add(JsonPair.JsonValue.Value);
-
-        {*DatabasePath := JsonPair.JsonValue.Value;
-
-        // Проверка подключения к БД
-        try
-          FDConnection1.Params.Database := DatabasePath;
-          FDConnection1.Params.UserName := 'MIFUSER';
-          FDConnection1.Params.Password := 'MIFROOT';
-          FDConnection1.Connected := True;
-
-          ConnectionStatus := 'Соединение установлено успешно';
-        except
-          on E: Exception do
-            ConnectionStatus := 'Ошибка ' + E.Message;
-        end;*}
 
         // Добавляем состояние в ListView
         ListItem.SubItems.Add(ConnectionStatus);
@@ -383,7 +482,7 @@ begin
   end;
 end;
 
-procedure TForm5.ProcessDatabase(const Database: string);
+procedure TForm5.ProcessDatabase(const Database: string; ClientDataSet: TClientDataSet);
 var
   Task: ITask;
 begin
@@ -393,6 +492,7 @@ begin
       LocalConnection: TFDConnection;
       LocalQuery: TFDQuery;
       LocalScript: TFDScript;
+      DataSetProvider: TDataSetProvider;
       Status: string;
     begin
       LocalConnection := TFDConnection.Create(nil);
@@ -422,20 +522,11 @@ begin
 
             TThread.Synchronize(nil,
               procedure
-              var
-                ClientDataSet: TClientDataSet;
-                DataSetProvider: TDataSetProvider;
               begin
-                ClientDataSet := TClientDataSet.Create(nil);
-                DataSetProvider := TDataSetProvider.Create(nil);
                 try
+                  DataSetProvider := TDataSetProvider.Create(nil);
                   DataSetProvider.DataSet := LocalQuery;
                   ClientDataSet.AppendData(DataSetProvider.Data, True);
-                  DataSource1.DataSet := ClientDataSet;
-                  DBGrid1.DataSource := DataSource1;
-
-                  // Обновление DBGrid
-                  DBGrid1.Refresh;
 
                   // Проверка данных
                   if ClientDataSet.IsEmpty then
@@ -443,8 +534,6 @@ begin
                       ShowMessage('ClientDataSet пуст');
                   end;
 
-                  // Обновление формы
-                  Form5.Refresh;
                 except
                   on E: Exception do
                   begin
